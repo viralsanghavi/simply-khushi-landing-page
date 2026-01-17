@@ -6,6 +6,7 @@ import { useState, useRef, useEffect } from "react"
 import { motion, useReducedMotion, AnimatePresence } from "framer-motion"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Textarea } from "@/components/ui/textarea"
 import { X, Sparkles } from "lucide-react"
 import { addDoc, collection, serverTimestamp } from "firebase/firestore"
 import { db } from "@/lib/firebase"
@@ -21,9 +22,10 @@ export function SpinWheel({ isOpen, onClose }: SpinWheelProps) {
   const [showForm, setShowForm] = useState(false)
   const [rotation, setRotation] = useState(0)
   const [wonPrize, setWonPrize] = useState("")
-  const [formData, setFormData] = useState({ name: "", email: "", phone: "" })
+  const [formData, setFormData] = useState({ name: "", email: "", phone: "", note: "" })
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState<string | null>(null)
+  const [showSuccess, setShowSuccess] = useState(false)
   const prefersReducedMotion = useReducedMotion()
   const wheelRef = useRef<HTMLDivElement>(null)
 
@@ -79,18 +81,25 @@ export function SpinWheel({ isOpen, onClose }: SpinWheelProps) {
       name: formData.name.trim(),
       email: formData.email.trim(),
       phone: formData.phone.trim(),
+      note: formData.note.trim(),
       timestamp: new Date().toISOString(),
       hasCompleted: true,
     }
 
     try {
-      await addDoc(collection(db, "spin_entries"), {
+      const writePromise = addDoc(collection(db, "spin_entries"), {
         ...spinData,
         createdAt: serverTimestamp(),
       })
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Firestore write timed out")), 8000),
+      )
+
+      await Promise.race([writePromise, timeoutPromise])
       localStorage.setItem("simplykhushi_spin", JSON.stringify(spinData))
-      setTimeout(onClose, 400)
+      setShowSuccess(true)
     } catch (error) {
+      console.error("Spin form submission failed", error)
       setSubmitError("Something went wrong. Please try again.")
     } finally {
       setIsSubmitting(false)
@@ -119,12 +128,50 @@ export function SpinWheel({ isOpen, onClose }: SpinWheelProps) {
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-md p-4"
           onClick={(e) => e.target === e.currentTarget && onClose()}
         >
+          {showSuccess && (
+            <div className="pointer-events-none absolute inset-0 overflow-hidden">
+              {Array.from({ length: 32 }).map((_, index) => (
+                <span
+                  key={index}
+                  className="absolute top-0 h-3 w-2 rounded-sm opacity-90 animate-[confetti-fall_3.5s_linear_infinite]"
+                  style={{
+                    left: `${(index * 100) / 32}%`,
+                    backgroundColor: ["#FFC83D", "#F4B6C2", "#BFD7EA", "#A8C3A0"][index % 4],
+                    animationDelay: `${(index % 8) * 0.2}s`,
+                    animationDuration: `${3 + (index % 5) * 0.4}s`,
+                    transform: `rotate(${index * 15}deg)`,
+                  }}
+                />
+              ))}
+            </div>
+          )}
+          {showSuccess && (
+            <motion.div
+              initial={{ opacity: 0, scale: prefersReducedMotion ? 1 : 0.95, y: prefersReducedMotion ? 0 : 12 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: prefersReducedMotion ? 1 : 0.98, y: prefersReducedMotion ? 0 : 8 }}
+              transition={{ duration: prefersReducedMotion ? 0.1 : 0.25, ease: [0.22, 1, 0.36, 1] }}
+              className="absolute inset-0 z-20 flex items-center justify-center"
+            >
+              <div className="mx-auto w-full max-w-sm rounded-3xl border border-border/60 bg-background px-8 py-7 text-center shadow-2xl">
+                <p className="font-display text-2xl tracking-wide text-foreground">Show this at the counter and claim your offer</p>
+                <Button
+                  onClick={onClose}
+                  size="lg"
+                  className="mt-6 w-full h-12 text-base font-normal bg-gradient-to-r from-primary to-secondary hover:opacity-90 text-foreground shadow-lg hover:shadow-xl transition-all"
+                >
+                  Close
+                </Button>
+              </div>
+            </motion.div>
+          )}
           <motion.div
             initial={{ opacity: 0, scale: prefersReducedMotion ? 1 : 0.95, y: prefersReducedMotion ? 0 : 20 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: prefersReducedMotion ? 1 : 0.95, y: prefersReducedMotion ? 0 : 20 }}
             transition={{ duration: prefersReducedMotion ? 0.1 : 0.4, ease: [0.22, 1, 0.36, 1] }}
             className="relative w-full max-w-lg bg-background rounded-3xl border border-border/50 shadow-2xl overflow-hidden"
+            aria-hidden={showSuccess}
           >
             <button
               onClick={onClose}
@@ -181,12 +228,18 @@ export function SpinWheel({ isOpen, onClose }: SpinWheelProps) {
                       <div ref={wheelRef} className="relative w-full h-full">
                         <motion.svg
                           className="w-full h-full drop-shadow-2xl"
-                          style={{
-                            transform: `rotate(${rotation}deg)`,
-                            transition: spinning ? "transform 3s cubic-bezier(0.17, 0.67, 0.3, 0.99)" : "none",
-                          }}
                           viewBox="0 0 100 100"
                           aria-label="Prize wheel"
+                          style={{
+                            transformOrigin: "50% 50%",
+                            transformBox: "fill-box",
+                          }}
+                          animate={{ rotate: rotation }}
+                          transition={
+                            spinning
+                              ? { duration: 3, ease: [0.17, 0.67, 0.3, 0.99] }
+                              : { duration: 0 }
+                          }
                         >
                           {/* Outer ring */}
                           <circle cx="50" cy="50" r="49" fill="white" stroke="#E5E7EB" strokeWidth="0.5" />
@@ -355,6 +408,24 @@ export function SpinWheel({ isOpen, onClose }: SpinWheelProps) {
                       </motion.div>
 
                       <motion.div
+                        initial={{ opacity: 0, x: prefersReducedMotion ? 0 : -10 }}
+                        animate={{ opacity: 1, x: 0 }}
+                        transition={{ delay: prefersReducedMotion ? 0 : 0.35 }}
+                        className="space-y-2"
+                      >
+                        <label htmlFor="note" className="text-sm font-normal text-foreground">
+                          Note
+                        </label>
+                        <Textarea
+                          id="note"
+                          placeholder="Add a note for us"
+                          value={formData.note}
+                          onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                          className="min-h-24 rounded-xl border-border focus:border-ring focus:ring-2 focus:ring-ring/20 transition-all"
+                        />
+                      </motion.div>
+
+                      <motion.div
                         initial={{ opacity: 0, y: prefersReducedMotion ? 0 : 10 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ delay: prefersReducedMotion ? 0 : 0.4 }}
@@ -379,6 +450,18 @@ export function SpinWheel({ isOpen, onClose }: SpinWheelProps) {
               </AnimatePresence>
             </div>
           </motion.div>
+          {showSuccess && (
+            <style jsx global>{`
+              @keyframes confetti-fall {
+                0% {
+                  transform: translateY(-10%) rotate(0deg);
+                }
+                100% {
+                  transform: translateY(120vh) rotate(360deg);
+                }
+              }
+            `}</style>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
