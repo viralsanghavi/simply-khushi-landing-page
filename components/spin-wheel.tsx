@@ -31,7 +31,7 @@ export function SpinWheel({ isOpen, onClose }: SpinWheelProps) {
 
   const prizes = [
     "Follow us & get 10% off",
-    "Fridge magnet + 10% off",
+    "10% off",
     "Flat 10% off",
     "Write a note for a stranger & get 10% off",
   ]
